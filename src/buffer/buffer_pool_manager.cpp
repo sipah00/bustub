@@ -40,9 +40,9 @@ BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   
-  Page *page = GetFreePage();
+  frame_id_t frame_id;
+  Page *page = GetFreePage(&frame_id);
   if(page == nullptr) {
-    page_id = nullptr;
     return nullptr;
   }
   
@@ -51,60 +51,71 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   page->page_id_ = disk_page_id;
   *page_id = disk_page_id;
 
+  page_table_[disk_page_id] = frame_id;
+  replacer_->RecordAccess(frame_id);
+
+  // disable eviction why here??
+  replacer_->SetEvictable(frame_id, false);
+
   return page;
   }
 
 auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType access_type) -> Page * {
-  for(int i = 0; i < pool_size_; i++) {  // may be till only next_page id
-    if(pages_[i].page_id_ == page_id) {
-      return &pages_[i];
-    }
+  if(page_table_.find(page_id) != end(page_table_)) {
+    replacer_->RecordAccess(page_table_[page_id]);
+    return &pages_[page_table_[page_id]];
   }
-  Page *page = GetFreePage();
+  frame_id_t frame_id;
+  Page *page = GetFreePage(&frame_id);
   if(page == nullptr) {
-    return page;
+    return nullptr;
   }
   page->page_id_ = page_id;
   disk_manager_->ReadPage(page_id, page->data_);
 
-  replacer_->RecordAccess(page_table_[page_id]);
+  page_table_[page_id] = frame_id;
+  replacer_->RecordAccess(frame_id);
+
+  // disable eviction why here??
+  replacer_->SetEvictable(frame_id, false);
 
   return page;
 }
 
 auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unused]] AccessType access_type) -> bool {
-  for(int i = 0; i < pool_size_; i++) {
-    Page *page = &pages_[i];
-    if(page->page_id_ == page_id) {
+  if(page_table_.find(page_id) != end(page_table_)) {
+    Page *page = &pages_[page_table_[page_id]];
+    if(page->pin_count_ == 0) {
+      return false;
+    } else {
+      page->pin_count_--;
       if(page->pin_count_ == 0) {
-        return false;
-      } else {
-        page->pin_count_--;
-        if(page->pin_count_ == 0) {
-          
-        }
-        page->is_dirty_ = is_dirty;
-        return true;
+        replacer_->SetEvictable(page_table_[page_id], true);
       }
+      page->is_dirty_ = is_dirty;
+      return true;
     }
   }
   return false;
 }
 
-auto BufferPoolManager::GetFreePage() -> Page * {
+auto BufferPoolManager::GetFreePage(frame_id_t *frame_id) -> Page * {
   Page *page = nullptr;
   if (!free_list_.empty()) {
     frame_id_t f_id = free_list_.front();
     page = &pages_[f_id];
+    *frame_id = f_id;
   } else {
     frame_id_t *p;
     if(replacer_->Evict(p)) {
       page = &pages_[*p];
       if(page->IsDirty()) {
         disk_manager_->WritePage(page->page_id_, page->GetData());
-        page->is_dirty_ = false;
-        page->pin_count_ = 0;
       }
+      page_table_.erase(page->GetPageId());
+      *frame_id = (*p);
+      page->ResetMemory();
+      
     }
   }
   return page;
@@ -113,12 +124,11 @@ auto BufferPoolManager::GetFreePage() -> Page * {
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     assert(page_id != INVALID_PAGE_ID);
 
-    frame_id_t frame_id = page_table_[page_id];
-    if(frame_id == -1) {
+    if(page_table_.find(page_id) == end(page_table_)) {
       return false;
     }
 
-    Page *page = &pages_[frame_id];
+    Page *page = &pages_[page_table_[page_id]];
     disk_manager_->WritePage(page_id, page->GetData());
     page->is_dirty_ = false;
 
@@ -144,6 +154,10 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   page_table_.erase(page_id);
   free_list_.push_back(frame_id);
   replacer_->Remove(frame_id);
+  page->Reset();
+
+  DeallocatePage(page_id);
+
   return true;
 }
 

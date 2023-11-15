@@ -172,7 +172,7 @@ class BufferPoolManager {
    */
   auto DeletePage(page_id_t page_id) -> bool;
 
-  auto GetFreePage() -> Page *;
+  auto GetFreePage(frame_id_t *frame_id) -> Page *;
 
  private:
   /** Number of pages in the buffer pool. */
