@@ -43,18 +43,19 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   frame_id_t frame_id;
   Page *page = GetFreePage(&frame_id);
   if(page == nullptr) {
+    *page_id = INVALID_PAGE_ID;
     return nullptr;
   }
   
   page_id_t disk_page_id = AllocatePage();
 
   page->page_id_ = disk_page_id;
+  page->pin_count_++;
   *page_id = disk_page_id;
 
   page_table_[disk_page_id] = frame_id;
   replacer_->RecordAccess(frame_id);
 
-  // disable eviction why here??
   replacer_->SetEvictable(frame_id, false);
 
   return page;
@@ -71,14 +72,14 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
     return nullptr;
   }
   page->page_id_ = page_id;
+  page->pin_count_++;
   disk_manager_->ReadPage(page_id, page->data_);
 
   page_table_[page_id] = frame_id;
+
   replacer_->RecordAccess(frame_id);
-
-  // disable eviction why here??
   replacer_->SetEvictable(frame_id, false);
-
+  
   return page;
 }
 
@@ -114,7 +115,7 @@ auto BufferPoolManager::GetFreePage(frame_id_t *frame_id) -> Page * {
       }
       page_table_.erase(page->GetPageId());
       *frame_id = (*p);
-      page->ResetMemory();
+      page->Reset();
       
     }
   }

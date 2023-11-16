@@ -17,6 +17,8 @@
 #include <mutex>  // NOLINT
 #include <unordered_map>
 #include <vector>
+#include <queue>
+#include <utility>
 
 #include "common/config.h"
 #include "common/macros.h"
@@ -34,6 +36,27 @@ class LRUKNode {
   [[maybe_unused]] size_t k_;
   [[maybe_unused]] frame_id_t fid_;
   [[maybe_unused]] bool is_evictable_{false};
+
+public:
+  auto IsEvictable() -> bool {
+    return is_evictable_;
+  }
+
+  void SetEvictable(bool set_evictable) {
+    is_evictable_ = set_evictable;
+  }
+
+  void RecordAccess(size_t current_time) {
+    history_.push_back(current_time);
+  }
+
+  auto GetKDistance() -> size_t {
+    if(history_.size() < k_) {
+      return INFINITY;
+    }
+    return history_.back() - history_.front();
+  }
+
 };
 
 /**
@@ -147,6 +170,12 @@ class LRUKReplacer {
    */
   auto Size() -> size_t;
 
+  auto GetCurrentTime() -> size_t;
+
+  void IncrementCurrentTime();
+
+  auto GetK() -> size_t;
+
  private:
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
@@ -156,6 +185,9 @@ class LRUKReplacer {
   [[maybe_unused]] size_t replacer_size_;
   [[maybe_unused]] size_t k_;
   [[maybe_unused]] std::mutex latch_;
+
+  std::priority_queue<std::pair<size_t, frame_id_t>> pq;
+
 };
 
 }  // namespace bustub

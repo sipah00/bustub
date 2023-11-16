@@ -5,11 +5,25 @@ namespace bustub {
 
 BasicPageGuard::BasicPageGuard(BasicPageGuard &&that) noexcept {}
 
-void BasicPageGuard::Drop() {}
+void BasicPageGuard::Drop() {
+    if(!drop_called) {
+        bpm_->UnpinPage(page_->GetPageId(), false);
+        drop_called = true;
+    } else {
+        throw Exception("Drop already called!!");
+    }
+    bpm_ = nullptr;
+    page_ = nullptr;
+}
 
-auto BasicPageGuard::operator=(BasicPageGuard &&that) noexcept -> BasicPageGuard & { return *this; }
+auto BasicPageGuard::operator=(BasicPageGuard &&that) noexcept -> BasicPageGuard & {
 
-BasicPageGuard::~BasicPageGuard(){};  // NOLINT
+    return *this;    
+}
+
+BasicPageGuard::~BasicPageGuard(){
+    if(!drop_called) Drop();
+}
 
 ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept = default;
 
